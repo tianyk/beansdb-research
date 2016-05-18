@@ -1,0 +1,48 @@
+2013-07-15 0.6.0
+    * new: stopme command
+    * improve: add madvise() and fadvise() to improve fs buffer usage 
+    * bugfix: make select() work, if no epoll and kqueue
+    * bugfix: overflow in htree and codec
+
+2013-05-21 0.5.9
+    * improve: improve GC, do not need restart any more
+    * bugfix: limit number of formats in codec
+    * several bugfix
+
+2013-02-04 0.5.8
+    * new: merge data files into large one when GC
+	* change: close bitcask in parallel 
+    * bugfix: readlink() should ends with \0 (used when GC)
+
+2012-11-20 0.5.7
+    * new: dump HTree to disk to speed up boosting
+	* change: increase the size of data file to 4G 
+	* some bugfix
+
+2011-11-25 0.5.6 
+	* new: support multi directories as Home, manage disk spaces auto.
+    * improve: using multi threads when boot scaning.
+
+2011-09-22 0.5.5
+    * improve: improve codec, support more patterns of keys
+    * bugfix: crash because of get_proc_stats, get maxrss from /proc/self/statm
+
+2011-08-16 0.5.4
+    * improve: codec, enlarge buffer size
+
+2011-01-11 0.5.3
+    * new: scan hash tree with prefix, for example, @xxx:prefix
+    * new: optimize data file in place (gc)
+    * improve: leader/follower threads model
+    * improve: less memory in htree
+
+2010-11-10 0.5.1
+    * new: pub/sub threads model 
+    * new: compress records and hint with QuickLZ
+
+2010-10-25 0.5.0
+    * new: bitcask storage
+    * new: append and incr command
+
+2009-12-25 0.3.0
+	* First public release.
