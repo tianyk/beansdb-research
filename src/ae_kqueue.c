@@ -2,6 +2,8 @@
  * Copyright (C) 2009 Harish Mallipeddi - harish.mallipeddi@gmail.com
  * Released under the BSD license. See the COPYING file for more info. */
 
+// 对kqueue的封装
+
 #include <sys/types.h>
 #include <sys/event.h>
 #include <sys/time.h>

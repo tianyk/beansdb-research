@@ -64,7 +64,8 @@ static int scan_completed = 0;
 static pthread_mutex_t scan_lock;
 static pthread_cond_t  scan_cond;
 
-typedef void (*BC_FUNC)(Bitcask *bc);
+typedef void (*BC_FUNC)(
+    Bitcask *bc);
 
 struct scan_args {
     HStore *store;

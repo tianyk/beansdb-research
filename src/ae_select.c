@@ -2,6 +2,8 @@
  * Copyright (C) 2009-2010 Salvatore Sanfilippo - antirez@gmail.com
  * Released under the BSD license. See the COPYING file for more info. */
 
+// 对select得封装
+
 #include <string.h>
 
 typedef struct aeApiState {

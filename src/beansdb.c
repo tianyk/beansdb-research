@@ -70,7 +70,9 @@
  */
 //  获取一个非阻塞的socket连接
 static int new_socket(struct addrinfo *ai); // static 它只在定义它的源文件内有效，其他源文件无法访问它
+// 启动server
 static int server_socket(const int port, const bool is_udp);
+
 static int try_read_command(conn *c);
 static int try_read_network(conn *c);
 
@@ -111,12 +113,15 @@ static int stub_fd = 0;
 #define TRANSMIT_SOFT_ERROR 2
 #define TRANSMIT_HARD_ERROR 3
 
+
+// 初始化状态信息
 static void stats_init(void) {
     stats.curr_conns = stats.total_conns = stats.conn_structs = 0;
     stats.get_cmds = stats.set_cmds = stats.delete_cmds = 0;
     stats.slow_cmds = stats.get_hits = stats.get_misses = 0;
     stats.bytes_read = stats.bytes_written = 0;
-
+    
+    // 设置启动时间在2秒前
     /* make the time we started always be 2 seconds before we really
        did, so time(0) - time.started is never zero.  if so, things
        like 'settings.oldest_live' which act as booleans as well as
@@ -124,6 +129,7 @@ static void stats_init(void) {
     stats.started = time(0) - 2;
 }
 
+// 重置状态信息
 static void stats_reset(void) {
     STATS_LOCK();
     stats.total_conns = 0;
@@ -184,14 +190,16 @@ static int add_msghdr(conn *c)
 /*
  * Free list management for connections.
  */
-
+// 连接池
 static conn **freeconns;
+// 池子大小
 static int freetotal;
-static int freecurr;
+// freeconns[freecurr] 正在被使用
+static int freecurr; 
 
-
+// 初始化连接池
 static void conn_init(void) {
-    freetotal = 200;
+    freetotal = 200; // 池子大小两百个
     freecurr = 0;
     if ((freeconns = (conn **)malloc(sizeof(conn *) * freetotal)) == NULL) {
         fprintf(stderr, "malloc()\n");
@@ -344,6 +352,7 @@ static void conn_cleanup(conn *c) {
 /*
  * Frees a connection.
  */
+//  释放连接
 void conn_free(conn *c) {
     if (c) {
         if (c->msglist)
@@ -360,13 +369,17 @@ void conn_free(conn *c) {
     }
 }
 
+
+// 关闭连接
 void conn_close(conn *c) {
     assert(c != NULL);
 
     if (settings.verbose > 1)
         fprintf(stderr, "<%d connection closed.\n", c->sfd);
-
+    
+    // 清理事件
     delete_event(c->sfd);
+    // 关闭文件描述符
     close(c->sfd);
     c->sfd = -1;
     update_event(c, 0);
@@ -445,6 +458,7 @@ static void conn_shrink(conn *c) {
  * processing that needs to happen on certain state transitions can
  * happen here.
  */
+//  设置连接状态
 static void conn_set_state(conn *c, int state) {
     assert(c != NULL);
 
@@ -543,6 +557,7 @@ static int add_iov(conn *c, const void *buf, int len) {
 }
 
 
+// 回显
 static void out_string(conn *c, const char *str) {
     size_t len;
 
@@ -613,6 +628,7 @@ static void complete_nread(conn *c) {
  *
  * Returns true if the item was stored.
  */
+//  存储内容
 int store_item(item *it, int comm) {
     char *key = ITEM_key(it);
     int ret;
@@ -664,6 +680,7 @@ typedef struct token_s {
  *      command  = tokens[ix].value;
  *   }
  */
+//  分析命令行。分析器
 static size_t tokenize_command(char *command, token_t *tokens, const size_t max_tokens) {
     char *s, *e;
     size_t ntokens = 0;
@@ -819,6 +836,7 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
 }
 
 /* ntokens is overwritten here... shrug.. */
+// 处理get命令
 static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens) {
     char *key;
     size_t nkey;
@@ -933,6 +951,8 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens)
     return;
 }
 
+
+// 处理update命令
 static void process_update_command(conn *c, token_t *tokens, const size_t ntokens, int comm) {
     char *key;
     size_t nkey;
@@ -997,6 +1017,7 @@ bool safe_strtoull(const char *str, uint64_t *out) {
     return false;
 }
 
+// incr 
 static void process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, const bool incr) {
     char temp[INCR_MAX_STORAGE_LEN];
     uint64_t delta;
@@ -1078,7 +1099,7 @@ static void process_verbosity_command(conn *c, token_t *tokens, const size_t nto
     return;
 }
 
-// 解析命令行
+// 解析命令
 static void process_command(conn *c, char *command) {
 
     token_t tokens[MAX_TOKENS];
@@ -1763,6 +1784,8 @@ static void usage_license(void) {
     return;
 }
 
+
+// 保存pid
 static void save_pid(const pid_t pid, const char *pid_file) {
     FILE *fp;
     if (pid_file == NULL)
@@ -1791,6 +1814,7 @@ static void remove_pidfile(const char *pid_file) {
 }
 
 /* for safely exit, make sure to do checkpoint*/
+// 捕捉信息
 static void sig_handler(const int sig)
 {
     int ret;
@@ -1840,7 +1864,7 @@ int main (int argc, char **argv) {
     /* process arguments */
     while ((c = getopt(argc, argv, "a:p:c:hivl:dru:P:L:t:b:H:T:m:s:f:n:S")) != -1) {
         switch (c) {
-        case 'a':
+        case 'a': // access_log
             if (strcmp(optarg, "-") == 0) {
                 access_log = stdout;
             }else{
@@ -1851,19 +1875,19 @@ int main (int argc, char **argv) {
                 }
             }
             break;
-        case 'p':
+        case 'p': // 端口
             settings.port = atoi(optarg);
             break;
-        case 'c':
+        case 'c': // 最大连接数
             settings.maxconns = atoi(optarg);
             break;
-        case 'h':
+        case 'h': // 帮助
             usage();
             exit(EXIT_SUCCESS);
-        case 'i':
+        case 'i': // 协议
             usage_license();
             exit(EXIT_SUCCESS);
-        case 'v':
+        case 'v': // 
             settings.verbose++;
             break;
         case 'l':
@@ -1872,10 +1896,10 @@ int main (int argc, char **argv) {
         case 'd':
             daemonize = true;
             break;
-        case 'r':
+        case 'r': // 
             maxcore = 1;
             break;
-        case 'u':
+        case 'u': // 
             username = optarg;
             break;
         case 'P':
@@ -1891,7 +1915,7 @@ int main (int argc, char **argv) {
                 fprintf(stderr, "open log file %s failed\n", optarg);
             }
             break;
-        case 't':
+        case 't': // 最大线程数
             settings.num_threads = atoi(optarg);
             if (settings.num_threads == 0) {
                 fprintf(stderr, "Number of threads must be greater than 0\n");
@@ -1908,16 +1932,16 @@ int main (int argc, char **argv) {
                 fprintf(stderr, "Warning: item buffer size(-b) larger than 256KB may cause performance issue\n");
             } 
             break;
-        case 'H':
+        case 'H': // 存储目录
             dbhome = optarg;
             break;
         case 'T':
             height = atoi(optarg);
             break;
-        case 's':
+        case 's': // 慢查询日志
             settings.slow_cmd_time = atoi(optarg) / 1000.0;
             break;
-        case 'f':
+        case 'f': // 刷新间隔
             settings.flush_period = atoi(optarg);
             break;
         case 'n':
