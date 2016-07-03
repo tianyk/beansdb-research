@@ -40,7 +40,7 @@ typedef struct hint_record {
 } HintRecord;
 
 typedef struct {
-    MFile *f;
+    MFile *f; // 内存映射文件
     size_t size;
     char *buf;
 } HintFile;

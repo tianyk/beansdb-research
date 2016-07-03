@@ -36,7 +36,7 @@ const int APPEND_FLAG  = 0x00000100;
 const int INCR_FLAG    = 0x00000204;
 
 struct t_hstore {
-    int height, count;
+    int height, count; // height 深度 count 一共多少个文件夹（最底层）
     time_t before;
     int scan_threads;
     int op_start, op_end, op_limit; // for optimization
@@ -48,13 +48,14 @@ struct t_hstore {
 inline int get_index(HStore *store, char *key)
 {
     if (store->height == 0) return 0;
-    uint32_t h = fnv1a(key, strlen(key));
-    return h >> ((8 - store->height) * 4);
+    uint32_t h = fnv1a(key, strlen(key)); // FNV哈希算法
+    return h >> ((8 - store->height) * 4); // h >> 32; h >> 28; h >> 24; h >> 20
 }
+
 
 inline pthread_mutex_t* get_mutex(HStore *store, char *key)
 {
-    uint32_t i = fnv1a(key, strlen(key)) % NUM_OF_MUTEX;
+    uint32_t i = fnv1a(key, strlen(key)) % NUM_OF_MUTEX; // x % 37
     return &store->locks[i];
 }
 
@@ -75,7 +76,7 @@ struct scan_args {
 
 static void* scan_thread(void *_args)
 {
-    struct scan_args *args = _args; 
+    struct scan_args *args = _args;
     HStore *store = args->store;
     int i, index = args->index;
     for (i=0; i<store->count; i++) {
@@ -108,6 +109,11 @@ static void parallelize(HStore *store, BC_FUNC func) {
         args[i].store = store;
         args[i].index = i;
         args[i].func = func;
+        // args + i 指针运算
+        // 第一个参数为指向线程标识符的指针。
+        // 第二个参数用来设置线程属性。
+        // 第三个参数是线程运行函数的起始地址。
+        // 最后一个参数是运行函数的参数。
         if ((ret = pthread_create(thread_ids + i, &attr, scan_thread, args + i)) != 0) {
             fprintf(stderr, "Can't create thread: %s\n", strerror(ret));
             exit(1);
@@ -128,12 +134,21 @@ static void parallelize(HStore *store, BC_FUNC func) {
     free(args);
 }
 
+
+/**
+ * [hs_open description]
+ * @param  path         dbhome /a/b/c a/b/c.:;/x/y/z
+ * @param  height       [description] 3 2 1 0 深度
+ * @param  before       [description]
+ * @param  scan_threads [description]
+ * @return              [description]
+ */
 HStore* hs_open(char *path, int height, time_t before, int scan_threads)
 {
     if (NULL == path) return NULL;
     if (height < 0 || height > 3) {
         fprintf(stderr, "invalid db height: %d\n", height);
-        return NULL; 
+        return NULL;
     }
     if (before != 0){
         if (before<0) {
@@ -143,11 +158,12 @@ HStore* hs_open(char *path, int height, time_t before, int scan_threads)
             fprintf(stderr, "serve data modified before %s\n", ctime(&before));
         }
     }
-    
+
     char *paths[20], *rpath = path;
     int npath = 0;
+    // 字符串分割
     while ((paths[npath] = strsep(&rpath, ",:;")) != NULL) {
-        if (npath >= MAX_PATHS) return NULL; 
+        if (npath >= MAX_PATHS) return NULL;
         path = paths[npath];
         if (0 != access(path, F_OK) && 0 != mkdir(path, 0755)){
             fprintf(stderr, "mkdir %s failed\n", path);
@@ -161,13 +177,14 @@ HStore* hs_open(char *path, int height, time_t before, int scan_threads)
             }
             hs_close(s);
         }
-        
+
         npath ++;
     }
 
-    int i, j, count = 1 << (height * 4);
+    int i, j, count = 1 << (height * 4); // 1 * (2^(height * 4)) 每一层是16 2^4个
     HStore *store = (HStore*) malloc(sizeof(HStore) + sizeof(Bitcask*) * count);
     if (!store) return NULL;
+    // memset 初始化内存
     memset(store, 0, sizeof(HStore) + sizeof(Bitcask*) * count);
     store->height = height;
     store->count = count;
@@ -190,6 +207,7 @@ HStore* hs_open(char *path, int height, time_t before, int scan_threads)
         buf[i] = malloc(255);
     }
     for (i=0; i<count; i++){
+        // /home/boy/data/,;:/home/girl/data/
         for (j=0; j<npath; j++) {
             path = paths[j];
             switch(height){
@@ -199,6 +217,8 @@ HStore* hs_open(char *path, int height, time_t before, int scan_threads)
                 case 3: sprintf(buf[j], "%s/%x/%x/%x", path, i>>8, (i>>4)&0xf, i&0xf); break;
             }
         }
+        // /home/boy/data/0 /home/boy/data/1 /home/boy/data/2 ...
+        // /home/girl/data/0 /home/girl/data/1 /home/girl/data/2 ...
         Mgr *mgr = mgr_create((const char**)buf, npath);
         if (mgr == NULL) return NULL;
         store->bitcasks[i] = bc_open2(mgr, height, i, before);
@@ -206,7 +226,7 @@ HStore* hs_open(char *path, int height, time_t before, int scan_threads)
     for (i=0;i<npath;i++) {
         free(buf[i]);
     }
-   
+
     if (store->scan_threads > 1 && count > 1) {
         parallelize(store, bc_scan);
     }else{
@@ -234,7 +254,7 @@ void hs_close(HStore *store)
     if (!store) return;
     // stop optimizing
     store->op_start = store->op_end = 0;
-    
+
     if (store->scan_threads > 1 && store->count > 1) {
         parallelize(store, bc_close);
     } else {
@@ -313,7 +333,7 @@ char *hs_get(HStore *store, char *key, int *vlen, uint32_t *flag)
         *flag = 0;
         return r;
     }
-    
+
     bool info = false;
     if (key[0] == '?'){
         info = true;
@@ -324,7 +344,7 @@ char *hs_get(HStore *store, char *key, int *vlen, uint32_t *flag)
     if (r == NULL){
         return NULL;
     }
-    
+
     char *res = NULL;
     if (info){
         res = malloc(256);
@@ -336,7 +356,7 @@ char *hs_get(HStore *store, char *key, int *vlen, uint32_t *flag)
         if (r->version > 0){
             hash = gen_hash(r->value, r->vsz);
         }
-        *vlen = snprintf(res, 255, "%d %u %u %u %u", r->version, 
+        *vlen = snprintf(res, 255, "%d %u %u %u %u", r->version,
             hash, r->flag, r->vsz, r->tstamp);
         *flag = 0;
     }else if (r->version > 0){
@@ -349,11 +369,12 @@ char *hs_get(HStore *store, char *key, int *vlen, uint32_t *flag)
     return res;
 }
 
+// ver exptime
 bool hs_set(HStore *store, char *key, char* value, int vlen, uint32_t flag, int ver)
 {
     if (!store || !key || key[0] == '@') return false;
     if (store->before > 0) return false;
-    
+
     int index = get_index(store, key);
     return bc_set(store->bitcasks[index], key, value, vlen, flag, ver);
 }
@@ -362,7 +383,7 @@ bool hs_append(HStore *store, char *key, char* value, int vlen)
 {
     if (!store || !key || key[0] == '@') return false;
     if (store->before > 0) return false;
-    
+
     pthread_mutex_t *lock = get_mutex(store, key);
     pthread_mutex_lock(lock);
 
@@ -376,8 +397,8 @@ bool hs_append(HStore *store, char *key, char* value, int vlen)
     body = realloc(body, rlen + vlen);
     memcpy(body + rlen, value, vlen);
     suc = hs_set(store, key, body, rlen + vlen, flag, 0); // TODO: use timestamp
-    
-APPEND_END:    
+
+APPEND_END:
     if (body != NULL) free(body);
     pthread_mutex_unlock(lock);
     return suc;
@@ -387,7 +408,7 @@ int64_t hs_incr(HStore *store, char *key, int64_t value)
 {
     if (!store || !key || key[0] == '@') return 0;
     if (store->before > 0) return 0;
-    
+
     pthread_mutex_t *lock = get_mutex(store, key);
     pthread_mutex_lock(lock);
 
@@ -395,11 +416,11 @@ int64_t hs_incr(HStore *store, char *key, int64_t value)
     int rlen = 0, flag = INCR_FLAG;
     char buf[25];
     char *body = hs_get(store, key, &rlen, &flag);
-    
+
     if (body != NULL) {
         if (flag != INCR_FLAG || rlen > 22) {
             fprintf(stderr, "try to incr %s but flag=0x%x, len=%d", key, flag, rlen);
-            goto INCR_END; 
+            goto INCR_END;
         }
         result = strtoll(body, NULL, 10);
         if (result == 0 && errno == EINVAL) {
@@ -410,7 +431,7 @@ int64_t hs_incr(HStore *store, char *key, int64_t value)
 
     result += value;
     if (result < 0) result = 0;
-    rlen = sprintf(buf, "%lld", (long long int) result); 
+    rlen = sprintf(buf, "%lld", (long long int) result);
     if (!hs_set(store, key, buf, rlen, INCR_FLAG, 0)) { // use timestamp later
         result = 0; // set failed
     }
@@ -425,13 +446,13 @@ void* do_optimize(void *arg)
 {
     HStore *store = (HStore *) arg;
     time_t st = time(NULL);
-    fprintf(stderr, "start to optimize from %d to %d\n", 
+    fprintf(stderr, "start to optimize from %d to %d\n",
         store->op_start, store->op_end);
     for (; store->op_start < store->op_end; store->op_start ++) {
         bc_optimize(store->bitcasks[store->op_start], store->op_limit);
     }
     store->op_start = store->op_end = 0;
-    fprintf(stderr, "optimization completed in %lld seconds\n", 
+    fprintf(stderr, "optimization completed in %lld seconds\n",
             (long long)(time(NULL) - st));
     return NULL;
 }
@@ -449,7 +470,7 @@ bool hs_optimize(HStore *store, int limit)
         store->op_end = 1 << (store->height * 4);
         pthread_create(&id, NULL, do_optimize, store);
     }
-    
+
     return true;
 }
 
@@ -471,7 +492,7 @@ uint64_t hs_count(HStore *store, uint64_t *curr)
         total += bc_count(store->bitcasks[i], &curr);
         curr_total += curr;
     }
-    
+
     if (NULL != curr)  *curr = curr_total;
     return total;
 }
@@ -483,9 +504,9 @@ void    hs_stat(HStore *store, uint64_t *total, uint64_t *avail)
     int i;
     for (i=0; i<store->count; i++) {
         bc_stat(store->bitcasks[i], &used);
-        *total += used; 
+        *total += used;
     }
-     
+
     uint64_t total_space;
     mgr_stat(store->mgr, &total_space, avail);
 }

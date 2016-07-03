@@ -26,7 +26,7 @@
 
 const int MAX_KEY_LENGTH = 200;
 const int BUCKET_SIZE = 16;
-const int SPLIT_LIMIT = 64; 
+const int SPLIT_LIMIT = 64;
 const int MAX_DEPTH = 8;
 static const long long g_index[] = {0, 1, 17, 273, 4369, 69905, 1118481, 17895697, 286331153, 4581298449L};
 
@@ -121,7 +121,7 @@ static void enlarge_pool(HTree *tree)
     int i;
     int old_size = g_index[tree->height];
     int new_size = g_index[tree->height + 1];
-    
+
     tree->root = (Node*)realloc(tree->root, sizeof(Node) * new_size);
     memset(tree->root + old_size, 0, sizeof(Node) * (new_size - old_size));
     for (i=old_size; i<new_size; i++){
@@ -156,7 +156,7 @@ static void add_item(HTree *tree, Node *node, Item *it, uint32_t keyhash, bool e
     Item *p = data->head;
     int i;
     for (i=0; i<data->count; i++){
-        if (it->length == p->length && 
+        if (it->length == p->length &&
                 memcmp(it->key, p->key, KEYLENGTH(it)) == 0){
             node->hash += (HASH(it) - HASH(p)) * keyhash;
             node->count += it->ver > 0;
@@ -177,13 +177,13 @@ static void add_item(HTree *tree, Node *node, Item *it, uint32_t keyhash, bool e
         data->size = size;
         p = (Item *)((char*)data + pos);
     }
-    
+
     memcpy(p, it, it->length);
     data->count ++;
     data->used += it->length;
     node->count += it->ver > 0;
     node->hash += keyhash * HASH(it);
-    
+
     if (node->count > SPLIT_LIMIT){
         if (node->depth == tree->height - 1){
             if (enlarge && node->count > SPLIT_LIMIT * 4){
@@ -205,7 +205,7 @@ static void split_node(HTree *tree, Node *node)
     for (i=0; i<BUCKET_SIZE; i++){
         clear(tree, child+i);
     }
-    
+
     Data *data = get_data(node);
     Item *it = data->head;
     for (i=0; i<data->count; i++) {
@@ -213,9 +213,9 @@ static void split_node(HTree *tree, Node *node)
         add_item(tree, child + INDEX(it), it, keyhash, false);
         it = (Item*)((char*)it + it->length);
     }
-   
+
     set_data(node, NULL);
-    
+
     node->is_node = 1;
     node->valid = 0;
 }
@@ -226,19 +226,19 @@ static void remove_item(HTree *tree, Node *node, Item *it, uint32_t keyhash)
         node->valid = 0;
         node = get_child(tree, node, INDEX(it));
     }
-    
+
     Data *data = get_data(node);
     if (data->count == 0) return ;
     Item *p = data->head;
     int i;
     for (i=0; i<data->count; i++){
-        if (it->length == p->length && 
+        if (it->length == p->length &&
                 memcmp(it->key, p->key, KEYLENGTH(it)) == 0){
             data->count --;
             data->used -= p->length;
             node->count -= p->ver > 0;
             node->hash -= keyhash * HASH(p);
-            memmove(p, (char*)p + p->length, 
+            memmove(p, (char*)p + p->length,
                     data->size - ((char*)p - (char*)data) - p->length);
             set_data(node, data);
             return;
@@ -254,7 +254,7 @@ static void merge_node(HTree *tree, Node *node)
     Node* child = get_child(tree, node, 0);
     int i, j;
     for (i=0; i<BUCKET_SIZE; i++){
-        Data *data = get_data(child+i); 
+        Data *data = get_data(child+i);
         Item *it = data->head;
         int count = (child+i)->count;
         for (j=0; j < count; j++){
@@ -270,7 +270,7 @@ static void merge_node(HTree *tree, Node *node)
 static void update_node(HTree *tree, Node *node)
 {
     if (node->valid) return ;
-    
+
     int i;
     node->hash = 0;
     if (node->is_node){
@@ -282,13 +282,13 @@ static void update_node(HTree *tree, Node *node)
         }
         for (i=0; i<BUCKET_SIZE; i++){
             if (node->count > SPLIT_LIMIT * 4){
-                node->hash *= 97;               
+                node->hash *= 97;
             }
             node->hash += child[i].hash;
         }
     }
     node->valid = 1;
-    
+
     // merge nodes
     if (node->count <= SPLIT_LIMIT) {
         merge_node(tree, node);
@@ -300,12 +300,12 @@ static Item* get_item_hash(HTree* tree, Node* node, Item* it, uint32_t keyhash)
     while (node->is_node) {
         node = get_child(tree, node, INDEX(it));
     }
-    
+
     Data *data = get_data(node);
     Item *p = data->head, *r = NULL;
     int i;
     for (i=0; i<data->count; i++){
-        if (it->length == p->length && 
+        if (it->length == p->length &&
                 memcmp(it->key, p->key, KEYLENGTH(it)) == 0){
             r = p;
             break;
@@ -324,7 +324,7 @@ inline int hex2int(char b)
     }
 }
 
-static uint16_t get_node_hash(HTree* tree, Node* node, const char* dir, 
+static uint16_t get_node_hash(HTree* tree, Node* node, const char* dir,
     int *count)
 {
     if (node->is_node && strlen(dir) > 0){
@@ -343,7 +343,7 @@ static uint16_t get_node_hash(HTree* tree, Node* node, const char* dir,
 
 static char* list_dir(HTree *tree, Node* node, const char* dir, const char* prefix)
 {
-    int dlen = strlen(dir); 
+    int dlen = strlen(dir);
     while (node->is_node && dlen > 0){
         int b = hex2int(dir[0]);
         if (b >=0 && b < 16) {
@@ -354,7 +354,7 @@ static char* list_dir(HTree *tree, Node* node, const char* dir, const char* pref
             return NULL;
         }
     }
-    
+
     int bsize = 4096;
     char *buf = (char*) malloc(bsize);
     memset(buf, 0, bsize);
@@ -366,7 +366,7 @@ static char* list_dir(HTree *tree, Node* node, const char* dir, const char* pref
         if (node->count > 100000 || prefix==NULL && node->count > SPLIT_LIMIT * 4) {
             for (i=0; i<BUCKET_SIZE; i++) {
                 Node *t = child + i;
-                n += snprintf(buf + n, bsize - n, "%x/ %u %u\n", 
+                n += snprintf(buf + n, bsize - n, "%x/ %u %u\n",
                             i, t->hash, t->count);
             }
         }else{
@@ -382,7 +382,7 @@ static char* list_dir(HTree *tree, Node* node, const char* dir, const char* pref
             }
         }
     }else{
-        Data *data = get_data(node); 
+        Data *data = get_data(node);
         Item *it = data->head;
         char pbuf[20], key[255];
         int prefix_len = 0;
@@ -426,7 +426,7 @@ static void visit_node(HTree *tree, Node* node, fun_visitor visitor, void* param
             visitor(it, param);
             p = (Item*)((char*)p + p->length);
         }
-    }    
+    }
 }
 
 /*
@@ -463,7 +463,7 @@ HTree* ht_new(int depth, int pos)
 
     tree->dc = dc_new();
     pthread_mutex_init(&tree->lock, NULL);
-    
+
     return tree;
 }
 
@@ -480,7 +480,10 @@ HTree* ht_open(int depth, int pos, const char *path)
         fprintf(stderr, "open %s failed\n", path);
         return NULL;
     }
-    
+    // fread是一个函数。从一个文件流中读数据，最多读取count个元素，
+    // 每个元素size字节，如果调用成功返回实际读取到的元素个数，如果不成功或读到文件末尾返回 0。
+    // 读取Version
+    // memcmp是比较内存区域buf1和buf2的前count个字节。该函数是按字节比较的。
     if (fread(version, sizeof(VERSION), 1, f) != 1
         || memcmp(version, VERSION, sizeof(VERSION)) != 0) {
         fprintf(stderr, "the version %s is not expected\n", version);
@@ -488,7 +491,13 @@ HTree* ht_open(int depth, int pos, const char *path)
         return NULL;
     }
 
-    off_t fsize = 0;
+    // fseek（移动文件流的读写位置）
+    // int fseek(FILE * stream, long offset, int whence); long类型最大值2147483647，2147483647字节为2G
+    // whence 文件头0(SEEK_SET)，当前位置1(SEEK_CUR)，文件尾2(SEEK_END)
+    // http://www.jb51.net/article/37688.htm
+    // ftell()用来取得文件流目前的读写位置. 参数stream 为已打开的文件指针.
+    // 校验文件大小
+    off_t fsize = 0; // 文件的大小
     if (fread(&fsize, sizeof(fsize), 1, f) != 1 ||
         fseeko(f, 0, 2) != 0 || ftello(f) != fsize) {
         fprintf(stderr, "the size %lld is not expected\n", fsize);
@@ -496,7 +505,7 @@ HTree* ht_open(int depth, int pos, const char *path)
         return NULL;
     }
     fseeko(f, sizeof(VERSION) + sizeof(off_t), 0);
-#if _XOPEN_SOURCE >= 600 || _POSIX_C_SOURCE >= 200112L    
+#if _XOPEN_SOURCE >= 600 || _POSIX_C_SOURCE >= 200112L
     if (posix_fadvise(fileno(f), 0, fsize, POSIX_FADV_SEQUENTIAL) != 0) {
         fprintf(stderr, "posix_favise() failed\n");
     }
@@ -511,12 +520,12 @@ HTree* ht_open(int depth, int pos, const char *path)
     tree->depth = depth;
     tree->pos = pos;
 
-    if (fread(&tree->height, sizeof(int), 1, f) != 1 || 
+    if (fread(&tree->height, sizeof(int), 1, f) != 1 ||
         tree->height + depth < 0 || tree->height + depth > 9) {
         fprintf(stderr, "invalid height: %d\n", tree->height);
         goto FAIL;
     }
-    
+
     int pool_size = g_index[tree->height];
     int psize = sizeof(Node) * pool_size;
     root = (Node*)malloc(psize);
@@ -527,7 +536,7 @@ HTree* ht_open(int depth, int pos, const char *path)
         goto FAIL;
     }
     tree->root = root;
-    
+
     // load Data
     int i,size = 0;
     Data *data;
@@ -592,6 +601,7 @@ FAIL:
     return NULL;
 }
 
+// 序列化HashTree
 int ht_save(HTree *tree, const char *path)
 {
     if (!tree || !path) return -1;
@@ -605,6 +615,12 @@ int ht_save(HTree *tree, const char *path)
         return -1;
     }
 
+    // size_t fwrite(const void * ptr, size_t size, size_t nmemb, FILE * stream);
+    // fwrite()用来将数据写入文件流中. 参数stream 为已打开的文件指针, 参数ptr 指向欲写入的数据地址,
+    // 总共写入的字符数以参数size*nmemb 来决定. Fwrite()会返回实际写入的nmemb 数目.
+    //
+    // 写版本号
+    // 写文件大小（占位）
     off_t pos = 0;
     if (fwrite(VERSION, sizeof(VERSION), 1, f) != 1 ||
         fwrite(&pos, sizeof(off_t), 1, f) != 1) {
@@ -615,6 +631,8 @@ int ht_save(HTree *tree, const char *path)
 
     pthread_mutex_lock(&tree->lock);
 
+    // 写height
+    // 写Node
     int pool_size = g_index[tree->height];
     if (fwrite(&tree->height, sizeof(int), 1, f) != 1 ||
         fwrite(tree->root, sizeof(Node) * pool_size, 1, f) != 1 ) {
@@ -623,6 +641,7 @@ int ht_save(HTree *tree, const char *path)
         return -1;
     }
 
+    // 写数据
     int i, zero = 0;
     for (i=0; i<pool_size; i++) {
         Data *data= tree->root[i].data;
@@ -639,7 +658,8 @@ int ht_save(HTree *tree, const char *path)
             }
         }
     }
-    
+
+    // 写codec
     int s = dc_size(tree->dc);
     char *buf = malloc(s + sizeof(int));
     *(int*)buf = s;
@@ -656,15 +676,16 @@ int ht_save(HTree *tree, const char *path)
         return -1;
     }
     free(buf);
-    
-    pos = ftello(f);
+
+    pos = ftello(f); // 文件的大小
     fseeko(f, sizeof(VERSION), 0);
+    // 复写pos
     if (fwrite(&pos, sizeof(off_t), 1, f) != 1) {
         fprintf(stderr, "write size failed\n");
         fclose(f);
         return -1;
     }
-    
+
     pthread_mutex_unlock(&tree->lock);
 
     fclose(f);
@@ -678,7 +699,7 @@ void ht_destroy(HTree *tree)
     if (!tree) return;
 
     pthread_mutex_lock(&tree->lock);
-    
+
     dc_destroy(tree->dc);
 
     int i;
@@ -763,10 +784,10 @@ Item* ht_get2(HTree* tree, const char* key, int len)
         memcpy(rr, r, sizeof(Item));
         memcpy(rr->key, key, len);
         rr->key[len] = 0; // c-str
-        r = rr; // r is in node->Data block 
+        r = rr; // r is in node->Data block
     }
     pthread_mutex_unlock(&tree->lock);
-    return r;   
+    return r;
 }
 
 Item* ht_get(HTree* tree, const char* key)
@@ -780,7 +801,7 @@ uint32_t ht_get_hash(HTree* tree, const char* key, int* count)
         if(count) *count = 0;
         return 0;
     }
-    
+
     uint32_t hash = 0;
     pthread_mutex_lock(&tree->lock);
     update_node(tree, tree->root);
@@ -805,5 +826,5 @@ void ht_visit(HTree *tree, fun_visitor visitor, void *param)
 {
     pthread_mutex_lock(&tree->lock);
     visit_node(tree, tree->root, visitor, param);
-    pthread_mutex_unlock(&tree->lock);  
+    pthread_mutex_unlock(&tree->lock);
 }

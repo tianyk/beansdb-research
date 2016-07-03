@@ -60,7 +60,7 @@
 #endif
 
 
-// Linux系统下的单调时间函数 
+// Linux系统下的单调时间函数
 #ifndef CLOCK_MONOTONIC
 #include "clock_gettime_stub.c"
 #endif
@@ -87,6 +87,7 @@ static void settings_init(void);
 /* event handling, network IO */
 static void conn_init(void);
 static void accept_new_conns(const bool do_accept);
+// 在底层fd事件上面多了一个封装
 static bool update_event(conn *c, const int new_flags);
 static void complete_nread(conn *c);
 static void process_command(conn *c, char *command);
@@ -120,7 +121,7 @@ static void stats_init(void) {
     stats.get_cmds = stats.set_cmds = stats.delete_cmds = 0;
     stats.slow_cmds = stats.get_hits = stats.get_misses = 0;
     stats.bytes_read = stats.bytes_written = 0;
-    
+
     // 设置启动时间在2秒前
     /* make the time we started always be 2 seconds before we really
        did, so time(0) - time.started is never zero.  if so, things
@@ -195,7 +196,7 @@ static conn **freeconns;
 // 池子大小
 static int freetotal;
 // freeconns[freecurr] 正在被使用
-static int freecurr; 
+static int freecurr;
 
 // 初始化连接池
 static void conn_init(void) {
@@ -309,7 +310,7 @@ conn *conn_new(const int sfd, const int init_state, const int read_buffer_size) 
     c->write_and_free = 0;
     c->item = 0;
     c->noreply = false;
-    
+
     update_event(c, AE_READABLE);
     if (add_event(sfd, AE_READABLE, c) == -1) {
         if (conn_add_to_freelist(c)) {
@@ -376,7 +377,7 @@ void conn_close(conn *c) {
 
     if (settings.verbose > 1)
         fprintf(stderr, "<%d connection closed.\n", c->sfd);
-    
+
     // 清理事件
     delete_event(c->sfd);
     // 关闭文件描述符
@@ -569,7 +570,7 @@ static void out_string(conn *c, const char *str) {
         c->noreply = false;
         conn_set_state(c, conn_read);
         return;
-    }    
+    }
 
     len = strlen(str);
     if ((len + 2) > c->wsize) {
@@ -607,14 +608,15 @@ static void complete_nread(conn *c) {
     if (strncmp(ITEM_data(it) + it->nbytes - 2, "\r\n", 2) != 0) {
         out_string(c, "CLIENT_ERROR bad data chunk");
     } else {
-      ret = store_item(it, comm);
-      if (ret == 1)
+        // 存储内容
+        ret = store_item(it, comm);
+        if (ret == 1)
           out_string(c, "STORED");
-      else if(ret == 2)
+        else if(ret == 2)
           out_string(c, "EXISTS");
-      else if(ret == 3)
+        else if(ret == 3)
           out_string(c, "NOT_FOUND");
-      else
+        else
           out_string(c, "NOT_STORED");
     }
 
@@ -687,6 +689,7 @@ static size_t tokenize_command(char *command, token_t *tokens, const size_t max_
 
     assert(command != NULL && tokens != NULL && max_tokens > 1);
 
+    // 遍历每个字符 *e char; e string
     for (s = e = command; ntokens < max_tokens - 1; ++e) {
         if (*e == ' ') {
             if (s != e) {
@@ -811,10 +814,10 @@ static void process_stat(conn *c, token_t *tokens, const size_t ntokens) {
         pos += sprintf(pos, "STAT slow_cmd %"PRIu64"\r\n", stats.slow_cmds);
         pos += sprintf(pos, "STAT get_hits %"PRIu64"\r\n", stats.get_hits);
         pos += sprintf(pos, "STAT get_misses %"PRIu64"\r\n", stats.get_misses);
-        pos += sprintf(pos, "STAT curr_items %"PRIu64"\r\n", curr); 
-        pos += sprintf(pos, "STAT total_items %"PRIu64"\r\n", total); 
-        pos += sprintf(pos, "STAT avail_space %"PRIu64"\r\n", avail_space); 
-        pos += sprintf(pos, "STAT total_space %"PRIu64"\r\n", total_space); 
+        pos += sprintf(pos, "STAT curr_items %"PRIu64"\r\n", curr);
+        pos += sprintf(pos, "STAT total_items %"PRIu64"\r\n", total);
+        pos += sprintf(pos, "STAT avail_space %"PRIu64"\r\n", avail_space);
+        pos += sprintf(pos, "STAT total_space %"PRIu64"\r\n", total_space);
         pos += sprintf(pos, "STAT bytes_read %"PRIu64"\r\n", stats.bytes_read);
         pos += sprintf(pos, "STAT bytes_written %"PRIu64"\r\n", stats.bytes_written);
         pos += sprintf(pos, "STAT threads %d\r\n", settings.num_threads);
@@ -865,7 +868,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens)
             }
 
             stats_get_cmds++;
-            
+
             it = item_get(key, nkey);
 
             if (it) {
@@ -874,7 +877,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens)
                     if (new_list) {
                         c->isize *= 2;
                         c->ilist = new_list;
-                    } else { 
+                    } else {
                         item_free(it);
                         it = NULL;
                         break;
@@ -952,7 +955,7 @@ static inline void process_get_command(conn *c, token_t *tokens, size_t ntokens)
 }
 
 
-// 处理update命令
+// 处理update/set命令
 static void process_update_command(conn *c, token_t *tokens, const size_t ntokens, int comm) {
     char *key;
     size_t nkey;
@@ -965,17 +968,38 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
 
     set_noreply_maybe(c, tokens, ntokens);
 
+    // key
     if (tokens[KEY_TOKEN].length > KEY_MAX_LENGTH) {
         out_string(c, "CLIENT_ERROR bad command line format");
         return;
     }
 
+    // <command name> <key> <flags> <exptime> <bytes>\r\n <data block>\r\n
+    // set hello 0 0 5
+    // world
+    // 参数详解：
+    // 1.<command name> 可以是”set”, “add”, “replace”。
+    // set：<key>不存在时添加，<key>存在时覆盖。
+    // add：<key>不存在时添加,<key>存在时则会操作失败。
+    // replace：<key>不存在时添加失败，<key>存在时替换数据
+    // 2.<key> 保存数据的key
+    // 3.<flags> 是一个16位的无符号的整数(以十进制的方式表示)。
+    // 该标志将和需要存储的数据一起存储,并在客户端get数据时返回。
+    // 客户可以将此标志用做特殊用途，此标志对服务器来说是透明的。
+    // 4.<exptime> 过期的时间。
+    // 0表示存储的数据永远不过时(但可被服务器算法：LRU 等替换)。
+    // 非0(unix时间),当过期后,服务器可以保证用户得不到该数据(以服务器时间为标准)。
+    // 5.<bytes> 需要存储的字节数(不包含最后的”\r\n”),当用户希望存储空数据时,可以为0
+    // 6.最后客户端需要加上”\r\n”作为”命令头”的结束标志。
+    // 7.<data block>\r\n
+    // 紧接着”命令头”结束之后就要发送数据块(即希望存储的数据内容),最后加上”\r\n”作为此次通讯的结束。
     key = tokens[KEY_TOKEN].value;
     nkey = tokens[KEY_TOKEN].length;
 
+    // strtoul，将参数nptr字符串根据参数base来转换成无符号的长整型数。
     flags = strtoul(tokens[2].value, NULL, 10);
-    exptime = strtol(tokens[3].value, NULL, 10);
-    vlen = strtol(tokens[4].value, NULL, 10);
+    exptime = strtol(tokens[3].value, NULL, 10); // 过期时间
+    vlen = strtol(tokens[4].value, NULL, 10); // 值的大小 value length
 
     if(errno == ERANGE || ((flags == 0 || exptime == 0) && errno == EINVAL)
        || vlen < 0) {
@@ -983,7 +1007,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
         return;
     }
 
-    it = item_alloc1(key, nkey, flags, vlen+2);
+    it = item_alloc1(key, nkey, flags, vlen+2); // +2 \r\n
     it->ver = exptime;
     it->flag = flags;
 
@@ -997,7 +1021,7 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
 
     c->item = it;
     c->ritem = ITEM_data(it);
-    c->rlbytes = it->nbytes;
+    c->rlbytes = it->nbytes; // 值大小
     c->item_comm = comm;
     conn_set_state(c, conn_nread);
 }
@@ -1017,7 +1041,7 @@ bool safe_strtoull(const char *str, uint64_t *out) {
     return false;
 }
 
-// incr 
+// incr
 static void process_arithmetic_command(conn *c, token_t *tokens, const size_t ntokens, const bool incr) {
     char temp[INCR_MAX_STORAGE_LEN];
     uint64_t delta;
@@ -1027,7 +1051,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
     assert(c != NULL);
 
     set_noreply_maybe(c, tokens, ntokens);
- 
+
     STATS_LOCK();
     stats.set_cmds++;
     STATS_UNLOCK();
@@ -1044,7 +1068,7 @@ static void process_arithmetic_command(conn *c, token_t *tokens, const size_t nt
         out_string(c, "CLIENT_ERROR invalid numeric delta argument");
         return;
     }
-    
+
     switch(add_delta(key, nkey, delta, temp)) {
     case 0:
         out_string(c, temp);
@@ -1064,9 +1088,9 @@ static void process_delete_command(conn *c, token_t *tokens, const size_t ntoken
     size_t nkey;
     int ret;
     assert(c != NULL);
-    
+
     set_noreply_maybe(c, tokens, ntokens);
-    
+
     STATS_LOCK();
     stats.delete_cmds++;
     STATS_UNLOCK();
@@ -1086,7 +1110,7 @@ static void process_verbosity_command(conn *c, token_t *tokens, const size_t nto
     unsigned int level;
 
     assert(c != NULL);
-    
+
     set_noreply_maybe(c, tokens, ntokens);
 
     level = strtoul(tokens[1].value, NULL, 10);
@@ -1099,7 +1123,7 @@ static void process_verbosity_command(conn *c, token_t *tokens, const size_t nto
     return;
 }
 
-// 解析命令
+// 处理命令
 static void process_command(conn *c, char *command) {
 
     token_t tokens[MAX_TOKENS];
@@ -1125,7 +1149,7 @@ static void process_command(conn *c, char *command) {
         return;
     }
 
-    clock_gettime(CLOCK_MONOTONIC, &start);          
+    clock_gettime(CLOCK_MONOTONIC, &start);
 
     ntokens = tokenize_command(command, tokens, MAX_TOKENS);
     if (ntokens >= 3 &&
@@ -1134,7 +1158,7 @@ static void process_command(conn *c, char *command) {
         process_get_command(c, tokens, ntokens);
 
     } else if ((ntokens == 6 || ntokens == 7) &&
-                (strcmp(tokens[COMMAND_TOKEN].value, "set") == 0 && (comm = NREAD_SET) || 
+                (strcmp(tokens[COMMAND_TOKEN].value, "set") == 0 && (comm = NREAD_SET) ||
                  strcmp(tokens[COMMAND_TOKEN].value, "append") == 0 && (comm = NREAD_APPEND)) ) {
 
         process_update_command(c, tokens, ntokens, comm);
@@ -1162,7 +1186,7 @@ static void process_command(conn *c, char *command) {
     } else if (ntokens == 3 && (strcmp(tokens[COMMAND_TOKEN].value, "verbosity") == 0)) {
 
         process_verbosity_command(c, tokens, ntokens);
-    
+
     } else if (ntokens >= 2 && ntokens <= 4 && (strcmp(tokens[COMMAND_TOKEN].value, "flush_all") == 0)) {
 
         set_noreply_maybe(c, tokens, ntokens);
@@ -1175,7 +1199,7 @@ static void process_command(conn *c, char *command) {
                 return;
             }
         }
-        
+
         hs_optimize(store, limit);
         out_string(c, "OK");
         return;
@@ -1189,7 +1213,7 @@ static void process_command(conn *c, char *command) {
         out_string(c, "ERROR");
         return;
     }
-    
+
     clock_gettime(CLOCK_MONOTONIC, &end);
     float secs = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1e9;
     if (secs > settings.slow_cmd_time) {
@@ -1207,9 +1231,9 @@ static void process_command(conn *c, char *command) {
         int addrlen = sizeof(addr);
         getpeername(c->sfd, (struct sockaddr*)&addr, &addrlen);
         char host[NI_MAXHOST], serv[NI_MAXSERV];
-        getnameinfo((struct sockaddr*)&addr, addrlen,  host, sizeof(host), serv, sizeof(serv), 
+        getnameinfo((struct sockaddr*)&addr, addrlen,  host, sizeof(host), serv, sizeof(serv),
                 NI_NUMERICSERV);
-        fprintf(access_log, "%s %s:%s %s %s %.3f\n", now, host, serv, 
+        fprintf(access_log, "%s %s:%s %s %s %.3f\n", now, host, serv,
                 command, tokens[1].value, secs*1000);
     }
 
@@ -1394,6 +1418,7 @@ int drive_machine(conn *c) {
         switch(c->state) {
         case conn_listening:
             addrlen = sizeof(addr);
+            // 等待连接
             if ((sfd = accept(c->sfd, (struct sockaddr *)&addr, &addrlen)) == -1) {
                 stop = true;
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -1423,7 +1448,7 @@ int drive_machine(conn *c) {
                 close(sfd);
                 break;
             }
-            if (NULL == conn_new(sfd, conn_read, DATA_BUFFER_SIZE)) { 
+            if (NULL == conn_new(sfd, conn_read, DATA_BUFFER_SIZE)) {
                 if (settings.verbose > 0) {
                     fprintf(stderr, "Can't listen for events on fd %d\n", sfd);
                 }
@@ -1589,9 +1614,9 @@ int drive_machine(conn *c) {
 static int new_socket(struct addrinfo *ai) { // 结构作为参数 struct type t
     int sfd; // 文件描述符
     int flags;
-        
+
     if ((sfd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol)) == -1) { // ai->ai_family = *ai.ai_family
-        perror("socket()"); // 用来将上一个函数发生错误的原因输出到标准设备(stderr) e.g. socket() err 
+        perror("socket()"); // 用来将上一个函数发生错误的原因输出到标准设备(stderr) e.g. socket() err
         return -1;
     }
 
@@ -1607,7 +1632,7 @@ static int new_socket(struct addrinfo *ai) { // 结构作为参数 struct type t
 
 // 生成一个server_socket bind listen
 static int server_socket(const int port, const bool is_udp) { // const修饰可以防止意外地改动该指针，起到保护作用。此处的写法不太对
-    int sfd; // 文件描述符
+    int sfd; // 文件描述符 socket fd
     struct linger ling = {0, 0}; // 设置tcp连接断开（closesocket）方式 http://www.cnblogs.com/caosiyang/archive/2012/03/29/2422956.html
     struct addrinfo *ai;
     struct addrinfo *next;
@@ -1622,13 +1647,28 @@ static int server_socket(const int port, const bool is_udp) { // const修饰可�
      * the memset call clears nonstandard fields in some impementations
      * that otherwise mess things up.
      */
+    // hints：可以是一个空指针，也可以是一个指向某个addrinfo结构体的指针，调用者在这个结构中填入关于期望返回的信息类型的暗示。
+    // 举例来说：如果指定的服务既支持TCP也支持UDP，那么调用者可以把hints结构中的
     memset(&hints, 0, sizeof (hints)); // 在一段内存块中填充某个给定的值，初始化内存。全部填为0。
+    // AI_ADDRCONFIG: 查询配置的地址类型(IPv4或IPv6).
+    // AI_ALL: 查找IPv4和IPv6地址(仅用于AI_V4MAPPED).
+    // AI_CANONNAME: 需要一个规范名(而不是别名).
+    // AI_NUMERICHOST: 以数字格式返回主机地址.
+    // AI_NUMERICSERV: 以端口号返回服务.
+    // AI_PASSIVE: socket地址用于监听绑定.
+    // AI_V4MAPPED: 如果没有找到IPv6地址, 则返回映射到IPv6格式的IPv6地址.
     hints.ai_flags = AI_PASSIVE|AI_ADDRCONFIG;
     hints.ai_family = AF_UNSPEC;
     hints.ai_protocol = IPPROTO_TCP;
     hints.ai_socktype = SOCK_STREAM;
-    
+
     snprintf(port_buf, NI_MAXSERV, "%d", port);
+    // getaddrinfo函数能够处理名字到地址以及服务到端口这两种转换，返回的是一个addrinfo的结构（列表）指针而不是一个地址清单。
+    // hostname:一个主机名或者地址串(IPv4的点分十进制串或者IPv6的16进制串)
+    // service：服务名可以是十进制的端口号，也可以是已定义的服务名称，如ftp、http等
+    // hints：可以是一个空指针，也可以是一个指向某个addrinfo结构体的指针，调用者在这个结构中填入关于期望返回的信息类型的暗示。举例来说：如果指定的服务既支持TCP也支持UDP，那么调用者可以把hints结构中的ai_socktype成员设置成SOCK_DGRAM使得返回的仅仅是适用于数据报套接口的信息。
+    // result：本函数通过result指针参数返回一个指向addrinfo结构体链表的指针。
+    // 返回值：0——成功，非0——出错
     error= getaddrinfo(settings.inter, port_buf, &hints, &ai);
     if (error != 0) {
       if (error != EAI_SYSTEM)
@@ -1639,6 +1679,9 @@ static int server_socket(const int port, const bool is_udp) { // const修饰可�
       return 1;
     }
 
+    // ai 类似一个链表
+    // www.youtube.com
+    // 173.194.72.138/n173.194.72.102/n173.194.72.113/n173.194.72.101/n173.194.72.139/n173.194.72.100/n⏎
     for (next= ai; next; next= next->ai_next) {
         conn *listen_conn_add;
         if ((sfd = new_socket(next)) == -1) {
@@ -1646,12 +1689,14 @@ static int server_socket(const int port, const bool is_udp) { // const修饰可�
             return 1;
         }
 
+        // 设置参数
         setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, (void *)&flags, sizeof(flags));
         setsockopt(sfd, SOL_SOCKET, SO_KEEPALIVE, (void *)&flags, sizeof(flags));
         setsockopt(sfd, SOL_SOCKET, SO_LINGER, (void *)&ling, sizeof(ling));
         setsockopt(sfd, IPPROTO_TCP, TCP_NODELAY, (void *)&flags, sizeof(flags));
 
-        if (bind(sfd, next->ai_addr, next->ai_addrlen) == -1) { // bind 
+        // 先bind,后listen
+        if (bind(sfd, next->ai_addr, next->ai_addrlen) == -1) { // bind
             if (errno != EADDRINUSE) {
                 perror("bind()");
                 close(sfd);
@@ -1662,18 +1707,22 @@ static int server_socket(const int port, const bool is_udp) { // const修饰可�
             continue;
         } else {
           success++;
+          // listen()用来等待参数s 的socket 连线. 参数backlog 指定同时能处理的最大连接要求
+          // http://c.biancheng.net/cpp/html/364.html
           if (listen(sfd, 1024) == -1) { // listen
               perror("listen()");
               close(sfd);
               freeaddrinfo(ai);
               return 1;
           }
-      }
+        }
 
-      if (!(listen_conn_add = conn_new(sfd, conn_listening, 1))) {
-          fprintf(stderr, "failed to create listening connection\n");
-          exit(EXIT_FAILURE);
-      }
+        // conn_listening 状态
+        // conn_new 会把文件描述符添加到事件循环
+        if (!(listen_conn_add = conn_new(sfd, conn_listening, 1))) {
+            fprintf(stderr, "failed to create listening connection\n");
+            exit(EXIT_FAILURE);
+        }
     }
 
     freeaddrinfo(ai);
@@ -1887,7 +1936,7 @@ int main (int argc, char **argv) {
         case 'i': // 协议
             usage_license();
             exit(EXIT_SUCCESS);
-        case 'v': // 
+        case 'v': //
             settings.verbose++;
             break;
         case 'l':
@@ -1896,10 +1945,10 @@ int main (int argc, char **argv) {
         case 'd':
             daemonize = true;
             break;
-        case 'r': // 
+        case 'r': //
             maxcore = 1;
             break;
-        case 'u': // 
+        case 'u': //
             username = optarg;
             break;
         case 'P':
@@ -1927,10 +1976,10 @@ int main (int argc, char **argv) {
             if(settings.item_buf_size < 512){
                 fprintf(stderr, "item buf size must be larger than 512 bytes\n");
                 exit(EXIT_FAILURE);
-            } 
+            }
             if(settings.item_buf_size > 256 * 1024){
                 fprintf(stderr, "Warning: item buffer size(-b) larger than 256KB may cause performance issue\n");
-            } 
+            }
             break;
         case 'H': // 存储目录
             dbhome = optarg;
@@ -1971,6 +2020,7 @@ int main (int argc, char **argv) {
         }
     }
 
+    // linux corefile
     if (maxcore != 0) {
         struct rlimit rlim_new;
         /*
@@ -2032,7 +2082,7 @@ int main (int argc, char **argv) {
        a file descriptor handling bug somewhere in libevent */
     if (daemonize)
         save_pid(getpid(), pid_file);
-    
+
     /* lose root privileges if we have them */
     if (getuid() == 0 || geteuid() == 0) {
         if (username == 0 || *username == '\0') {
@@ -2048,7 +2098,7 @@ int main (int argc, char **argv) {
             return 1;
         }
     }
-    
+
     /* initialize other stuff */
     item_init();
     stats_init();
@@ -2078,7 +2128,7 @@ int main (int argc, char **argv) {
         exit(1);
     }
     thread_init(settings.num_threads);
-    
+
     /* create the listening socket, bind it, and init */
     if (server_socket(settings.port, false)) {
         fprintf(stderr, "failed to listen\n");

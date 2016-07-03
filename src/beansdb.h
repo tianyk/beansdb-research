@@ -12,7 +12,7 @@
  *      Davies Liu <davies.liu@gmail.com>
  *
  */
- 
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -85,8 +85,8 @@
 #define AE_ERR -1
 
 #define AE_NONE 0
-#define AE_READABLE 1
-#define AE_WRITABLE 2
+#define AE_READABLE 1 // EPOLLIN = 1
+#define AE_WRITABLE 2 // EPOLLOUT = 4
 
 /* Use these macros after a % in a printf format string
    to get correct 32/64 bit behavior, like this:

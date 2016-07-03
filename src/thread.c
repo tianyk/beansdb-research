@@ -32,7 +32,7 @@
 
 // 事件循环
 typedef struct EventLoop {
-    conn* conns[AE_SETSIZE];
+    conn* conns[AE_SETSIZE]; // AE_SETSIZE (1024*60)
     int   fired[AE_SETSIZE];
     int   nready;
     void *apidata;
@@ -128,13 +128,13 @@ void mt_stats_unlock() {
  *
  * nthreads  Number of event handler threads to spawn
  */
-
+// 首先初始化事件模型
 void thread_init(int nthreads) {
     int         i;
     pthread_mutex_init(&ibuffer_lock, NULL);
     pthread_mutex_init(&conn_lock, NULL);
     pthread_mutex_init(&leader, NULL);
-    
+
     memset(&loop, 0, sizeof(loop));
     if (aeApiCreate(&loop) == -1) {
         exit(1);
@@ -149,6 +149,7 @@ int add_event(int fd, int mask, conn *c)
     }
     assert(loop.conns[fd] == NULL);
     loop.conns[fd] = c;
+    // 添加事件
     if (aeApiAddEvent(&loop, fd, mask) == -1){ // I/O 多路复用，比如 epoll，select，kqueue
         loop.conns[fd] = NULL;
         return AE_ERR;
@@ -175,21 +176,30 @@ int delete_event(int fd)
     return 0;
 }
 
+// leader/flower模式
 static void *worker_main(void *arg) {
     pthread_setcanceltype (PTHREAD_CANCEL_ASYNCHRONOUS, 0);
-    
+
+    // struct timeval {
+    //     time_t       tv_sec;     /* seconds */
+    //     suseconds_t   tv_usec; /* microseconds */
+    // };
+    // tv_usec 的说明为时间的毫秒部分
     struct timeval tv = {1, 0};
+    // daemon_quit 退出标识。 0 没有退出、1退出
     while (!daemon_quit) {
         pthread_mutex_lock(&leader);
 
 AGAIN:
         while(loop.nready == 0 && daemon_quit == 0)
+            // 取出事件
             loop.nready = aeApiPoll(&loop, &tv);
         if (daemon_quit) {
             pthread_mutex_unlock(&leader);
             break;
         }
-       
+
+        // 遍历事件
         loop.nready --;
         int fd = loop.fired[loop.nready];
         conn *c = loop.conns[fd];
@@ -199,14 +209,14 @@ AGAIN:
             close(fd);
             goto AGAIN;
         }
-        //loop.conns[fd] = NULL; 
+        //loop.conns[fd] = NULL;
         pthread_mutex_unlock(&leader);
-        
+
         if (drive_machine(c)) {
             if (update_event(fd, c->ev_flags, c)) conn_close(c);
         }
     }
-    return NULL; 
+    return NULL;
 }
 
 void loop_run(int nthread)
@@ -214,20 +224,26 @@ void loop_run(int nthread)
     int i, ret;
     pthread_attr_t  attr;
     pthread_attr_init(&attr);
+    // pthread_t pthread_t用于声明线程ID。 typedef unsigned long int pthread_t;
     pthread_t* tids = malloc(sizeof(pthread_t) * nthread);
-    
+
     for (i=0; i<nthread - 1; i++) {
+        // pthread_create是类Unix操作系统（Unix、Linux、Mac OS X等）的创建线程的函数。
+        // 第一个参数为指向线程标识符的指针。
+        // 第二个参数用来设置线程属性。
+        // 第三个参数是线程运行函数的起始地址。
         if ((ret = pthread_create(tids + i, &attr, worker_main, NULL)) != 0) {
             fprintf(stderr, "Can't create thread: %s\n",
                     strerror(ret));
             exit(1);
         }
     }
-    
+
     worker_main(NULL);
-    
+
     // wait workers to stop
     for (i=0; i<nthread - 1; i++) {
+        // http://flyingv.iteye.com/blog/776476
         (void) pthread_join(tids[i], NULL);
         pthread_detach(tids[i]);
     }

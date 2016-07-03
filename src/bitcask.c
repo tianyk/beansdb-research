@@ -12,7 +12,7 @@
  *      Davies Liu <davies.liu@gmail.com>
  *
  */
- 
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -48,12 +48,19 @@ struct bitcask_t {
     uint32_t depth, pos;
     time_t before;
     Mgr    *mgr;
+    // HTree* tree; //这个tree记录了所有的data数据信息(也就是curr个tree的信息)，比cur_tree要大得多
+    // HTree* tree; //这个tree记录了所有的data数据信息(也就是curr个tree的信息)，比cur_tree要大得多
     HTree  *tree, *curr_tree;
     int    last_snapshot;
-    int    curr;
+    int    curr; // //当前的桶的序号，这之前的桶都已经写入datafile了
     uint64_t bytes, curr_bytes;
+    //write_buffer相当于active file的一个缓冲区。当write_buffer满了以后就flush
     char   *write_buffer;
     time_t last_flush_time;
+    // wbuf_size; // write_buffer的大小
+    // wbuf_start_pos; // write_buffer的大小小于文件的大小，所以start_pos是记录的write_buffer在文件中的位移
+    // 也就是文件的末尾
+    // wbuf_curr_pos; // 有效的数据的大小
     uint32_t    wbuf_size, wbuf_start_pos, wbuf_curr_pos;
     pthread_mutex_t flush_lock, buffer_lock, write_lock;
     int    optimize_flag;
@@ -80,7 +87,7 @@ Bitcask* bc_open2(Mgr *mgr, int depth, int pos, time_t before)
     Bitcask* bc = (Bitcask*)malloc(sizeof(Bitcask));
     if (bc == NULL) return NULL;
 
-    memset(bc, 0, sizeof(Bitcask));    
+    memset(bc, 0, sizeof(Bitcask));
     bc->mgr = mgr;
     bc->depth = depth;
     bc->pos = pos;
@@ -129,17 +136,17 @@ static void skip_empty_file(Bitcask* bc)
 {
     int i, last=0;
     char opath[255], npath[255];
-    
+
     const char* base = mgr_base(bc->mgr);
     for (i=0; i<MAX_BUCKET_COUNT; i++) {
         if (file_exists(gen_path(opath, base, DATA_FILE, i))) {
             if (i != last) {
                 mgr_rename(opath, gen_path(npath, base, DATA_FILE, last));
-                
+
                 if (file_exists(gen_path(opath, base, HINT_FILE, i))) {
                     mgr_rename(opath, gen_path(npath, base, HINT_FILE, last));
                 }
-                
+
                 mgr_unlink(gen_path(opath, base, HTREE_FILE, i));
             }
             last ++;
@@ -152,20 +159,20 @@ void bc_scan(Bitcask* bc)
     char datapath[255], hintpath[255];
     int i=0;
     struct stat st, hst;
-    
+
     skip_empty_file(bc);
 
     const char* base = mgr_base(bc->mgr);
     // load snapshot of htree
     for (i=MAX_BUCKET_COUNT-1; i>=0; i--) {
-        if (stat(gen_path(datapath, base, HTREE_FILE, i), &st) == 0 
-                && stat(gen_path(hintpath, base, HINT_FILE, i), &hst) == 0 
+        if (stat(gen_path(datapath, base, HTREE_FILE, i), &st) == 0
+                && stat(gen_path(hintpath, base, HINT_FILE, i), &hst) == 0
                 && st.st_mtime >= hst.st_mtime
                 && (bc->before == 0 || st.st_mtime < bc->before)) {
             bc->tree = ht_open(bc->depth, bc->pos, datapath);
             if (bc->tree != NULL) {
                 bc->last_snapshot = i;
-                break;
+                break; // 最新的快照
             } else {
                 fprintf(stderr, "open HTree from %s failed\n", datapath);
                 mgr_unlink(datapath);
@@ -192,9 +199,9 @@ void bc_scan(Bitcask* bc)
                         new_path(hintpath, bc->mgr, HINT_FILE, i));
             }
         }else{
-            if (0 == stat(hintpath, &st) && 
+            if (0 == stat(hintpath, &st) &&
                 (st.st_mtime < bc->before || 0 == stat(datapath, &st) && st.st_mtime < bc->before)){
-                scanHintFile(bc->tree, i, hintpath, NULL); 
+                scanHintFile(bc->tree, i, hintpath, NULL);
             }else{
                 scanDataFileBefore(bc->tree, i, datapath, bc->before);
             }
@@ -210,7 +217,7 @@ void bc_scan(Bitcask* bc)
             fprintf(stderr, "save HTree to %s failed\n", datapath);
         }
     }
-    
+
     bc->curr = i;
 }
 
@@ -221,18 +228,18 @@ void bc_close(Bitcask *bc)
 {
     int i=0;
     char datapath[255], hintpath[255];
-    
+
     if (bc->optimize_flag > 0) {
         bc->optimize_flag = 2;
         while (bc->optimize_flag > 0) {
             sleep(1);
         }
     }
-    
+
     pthread_mutex_lock(&bc->write_lock);
-    
+
     bc_flush(bc, 0, 0);
-    
+
     if (NULL != bc->curr_tree) {
         if (bc->curr_bytes > 0) {
             build_hint(bc->curr_tree, new_path(hintpath, bc->mgr, HINT_FILE, bc->curr));
@@ -301,23 +308,23 @@ void bc_optimize(Bitcask *bc, int limit)
     if (limit > 3600 * 24 * 365 * 10) { // more than 10 years
         limit_time = limit; // absolute time
     } else {
-        limit_time = time(NULL) - limit; // relative time 
+        limit_time = time(NULL) - limit; // relative time
     }
 
     struct stat st;
     bool skipped = false;
     for (i=0; i < bc->curr && bc->optimize_flag == 1; i++) {
         char datapath[255], hintpath[255];
-        gen_path(datapath, base, DATA_FILE, i); 
-        gen_path(hintpath, base, HINT_FILE, i); 
+        gen_path(datapath, base, DATA_FILE, i);
+        gen_path(hintpath, base, HINT_FILE, i);
         if (stat(datapath, &st) != 0) {
             continue; // skip empty file
         }
         // skip recent modified file
         if (st.st_mtime > limit_time) {
             skipped = true;
-           
-            last ++; 
+
+            last ++;
             if (last != i) { // rotate data file
                 char npath[255];
                 gen_path(npath, base, DATA_FILE, last);
@@ -326,7 +333,7 @@ void bc_optimize(Bitcask *bc, int limit)
                     last = i;
                     continue;
                 }
-                
+
                 // update HTree to use new index
                 if (stat(hintpath, &st) != 0) {
                     fprintf(stderr, "no hint file: %s, skip it\n", hintpath);
@@ -361,7 +368,7 @@ void bc_optimize(Bitcask *bc, int limit)
             char ldpath[255], lhpath[255];
             new_path(ldpath, bc->mgr, DATA_FILE, last);
             new_path(lhpath, bc->mgr, HINT_FILE, last);
-            recoverd = optimizeDataFile(bc->tree, i, datapath, hintpath, 
+            recoverd = optimizeDataFile(bc->tree, i, datapath, hintpath,
                     skipped, MAX_BUCKET_SIZE, last, ldpath, lhpath);
             if (recoverd == 0) {
                 last ++;
@@ -371,11 +378,11 @@ void bc_optimize(Bitcask *bc, int limit)
         }
         if (recoverd == 0) {
             // last == i
-            recoverd = optimizeDataFile(bc->tree, i, datapath, hintpath, 
+            recoverd = optimizeDataFile(bc->tree, i, datapath, hintpath,
                 skipped, MAX_BUCKET_SIZE, last, NULL, NULL);
         }
         if (recoverd < 0) break; // failed
-        
+
         pthread_mutex_lock(&bc->buffer_lock);
         bc->bytes -= recoverd;
         pthread_mutex_unlock(&bc->buffer_lock);
@@ -418,7 +425,7 @@ DataRecord* bc_get(Bitcask *bc, const char* key)
         free(item);
         return NULL;
     }
-    
+
     uint32_t bucket = item->pos & 0xff;
     uint32_t pos = item->pos & 0xffffff00;
     if (bucket > bc->curr) {
@@ -436,13 +443,13 @@ DataRecord* bc_get(Bitcask *bc, const char* key)
             r = decode_record(bc->write_buffer + p, bc->wbuf_curr_pos - p, true);
         }
         pthread_mutex_unlock(&bc->buffer_lock);
-        
+
         if (r != NULL){
             free(item);
             return r;
         }
     }
-        
+
     char fname[20], data[255];
     const char * path = mgr_base(bc->mgr);
     sprintf(fname, DATA_FILE, bucket);
@@ -451,11 +458,11 @@ DataRecord* bc_get(Bitcask *bc, const char* key)
     if (-1 == fd){
         goto GET_END;
     }
-    
+
     r = fast_read_record(fd, pos, true);
     if (NULL == r){
         if (bc->optimize_flag == 0)
-            fprintf(stderr, "Bug: get %s failed in %s %u %u\n", key, path, bucket, pos); 
+            fprintf(stderr, "Bug: get %s failed in %s %u %u\n", key, path, bucket, pos);
     } else {
          // check key
         if (strcmp(key, r->key) != 0){
@@ -463,7 +470,7 @@ DataRecord* bc_get(Bitcask *bc, const char* key)
                 fprintf(stderr, "Bug: record %s is not expected %s in %u @ %u\n", r->key, key, bucket, pos);
             free_record(r);
             r = NULL;
-        } 
+        }
     }
 GET_END:
     if (NULL == r && bc->optimize_flag == 0)
@@ -509,18 +516,18 @@ void bc_flush(Bitcask *bc, int limit, int flush_period)
         fprintf(stderr, "reach max bucket count\n");
         exit(1);
     }
-    
+
     pthread_mutex_lock(&bc->flush_lock);
     pthread_mutex_lock(&bc->buffer_lock);
 
     time_t now = time(NULL);
-    if (bc->wbuf_curr_pos > limit * 1024 || 
+    if (bc->wbuf_curr_pos > limit * 1024 ||
         now > bc->last_flush_time + flush_period && bc->wbuf_curr_pos > 0) {
         uint32_t size = bc->wbuf_curr_pos;
         char * tmp = (char*) malloc(size);
         memcpy(tmp, bc->write_buffer, size);
         pthread_mutex_unlock(&bc->buffer_lock);
-        
+
         char buf[255];
         new_path(buf, bc->mgr, DATA_FILE, bc->curr);
 
@@ -535,7 +542,7 @@ void bc_flush(Bitcask *bc, int limit, int flush_period)
             fprintf(stderr, "last pos not match: %"PRIu64" != %d in %s\n", last_pos, bc->wbuf_start_pos, buf);
             exit(1);
         }
-      
+
         int n = fwrite(tmp, 1, size, f);
         if (n < size) {
             fprintf(stderr, "write failed: return %d\n", n);
@@ -564,16 +571,17 @@ void bc_flush(Bitcask *bc, int limit, int flush_period)
                 bc->write_buffer = malloc(bc->wbuf_size);
             }
         }
-        
+
         if (bc->wbuf_start_pos + bc->wbuf_size > MAX_BUCKET_SIZE) {
             bc_rotate(bc);
         }
     }
-    
+
     pthread_mutex_unlock(&bc->buffer_lock);
     pthread_mutex_unlock(&bc->flush_lock);
 }
 
+// 设置一个值
 bool bc_set(Bitcask *bc, const char* key, char* value, int vlen, int flag, int version)
 {
     if (version < 0 && vlen > 0 || vlen > MAX_RECORD_SIZE){
@@ -581,15 +589,15 @@ bool bc_set(Bitcask *bc, const char* key, char* value, int vlen, int flag, int v
         return false;
     }
 
-    bool suc = false;
+    bool suc = false; // success
     pthread_mutex_lock(&bc->write_lock);
-    
+
     int oldv = 0, ver = version;
     Item *it = ht_get(bc->tree, key);
     if (it != NULL) {
         oldv = it->ver;
     }
-    
+
     if (version == 0 && oldv > 0){ // replace
         ver = oldv + 1;
     } else if (version == 0 && oldv <= 0){ // add
@@ -603,10 +611,11 @@ bool bc_set(Bitcask *bc, const char* key, char* value, int vlen, int flag, int v
     } else { // sync
         ver = version;
     }
-    
+
     uint16_t hash = gen_hash(value, vlen);
     if (ver < 0) hash = 0;
 
+    // 值没变化
     if (NULL != it && hash == it->hash) {
         DataRecord *r = bc_get(bc, key);
         if (r != NULL && r->flag == flag && vlen  == r->vsz
@@ -624,12 +633,13 @@ bool bc_set(Bitcask *bc, const char* key, char* value, int vlen, int flag, int v
         }
         if (r != NULL) free_record(r);
     }
-    
+
     int klen = strlen(key);
     DataRecord *r = malloc(sizeof(DataRecord) + klen);
-    r->ksz = klen;
+    r->ksz = klen; // key大小
+    // memcpy 内存拷贝
     memcpy(r->key, key, klen);
-    r->vsz = vlen;
+    r->vsz = vlen; // 值大小
     r->value = value;
     r->free_value = false;
     r->flag = flag;
@@ -637,11 +647,12 @@ bool bc_set(Bitcask *bc, const char* key, char* value, int vlen, int flag, int v
     r->tstamp = time(NULL);
 
     int rlen;
+    // 持久化
     char *rbuf = encode_record(r, &rlen);
     if (rbuf == NULL || (rlen & 0xff) != 0){
         fprintf(stderr, "encode_record() failed with %d\n", rlen);
         if (rbuf != NULL) free(rbuf);
-        goto SET_FAIL; 
+        goto SET_FAIL;
     }
 
     pthread_mutex_lock(&bc->buffer_lock);
@@ -650,7 +661,7 @@ bool bc_set(Bitcask *bc, const char* key, char* value, int vlen, int flag, int v
         pthread_mutex_unlock(&bc->buffer_lock);
         bc_flush(bc, 0, 0);
         pthread_mutex_lock(&bc->buffer_lock);
-        
+
         while (rlen > bc->wbuf_size) {
             bc->wbuf_size *= 2;
             free(bc->write_buffer);
@@ -664,7 +675,7 @@ bool bc_set(Bitcask *bc, const char* key, char* value, int vlen, int flag, int v
     int pos = (bc->wbuf_start_pos + bc->wbuf_curr_pos) | bc->curr;
     bc->wbuf_curr_pos += rlen;
     pthread_mutex_unlock(&bc->buffer_lock);
-   
+
     ht_add(bc->curr_tree, key, pos, hash, ver);
     ht_add(bc->tree, key, pos, hash, ver);
     suc = true;
@@ -677,10 +688,13 @@ SET_FAIL:
     return suc;
 }
 
+
+// 设置一个新值
 bool bc_delete(Bitcask *bc, const char* key)
 {
     return bc_set(bc, key, "", 0, 0, -1);
 }
+
 
 uint16_t bc_get_hash(Bitcask *bc, const char * pos, int *count)
 {

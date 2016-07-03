@@ -28,6 +28,13 @@ struct disk_mgr {
     int ndisks;
 };
 
+
+/**
+ * [mgr_create description]
+ * @param  disks  dbhome [/a/b/c, /x/y/z] /a/b/c /a/b/c/0 /a/b/c/1
+ * @param  ndisks [description]
+ * @return        [description]
+ */
 Mgr* mgr_create(const char **disks, int ndisks)
 {
     char *cwd = getcwd(NULL, 0);
@@ -36,12 +43,14 @@ Mgr* mgr_create(const char **disks, int ndisks)
     mgr->disks = (char**)malloc(sizeof(char*) * ndisks);
     int i=0;
     for (i=0; i<ndisks; i++) {
+        // 检查并创建文件
         if (0 != access(disks[i], F_OK) && 0 != mkdir(disks[i], 0755)) {
             fprintf(stderr, "access %s failed\n", disks[i]);
             free(mgr->disks);
             free(mgr);
             return NULL;
         }
+        // strdup将串拷贝到新建的位置处
         mgr->disks[i] = strdup(disks[i]);
 
         // auto symlink
@@ -54,20 +63,26 @@ Mgr* mgr_create(const char **disks, int ndisks)
             struct dirent *de;
             char target[255], sym[255], real[255];
             struct stat sb;
-            while ((de = readdir(dp)) != NULL) {
-                int len = strlen(de->d_name);
-                if (de->d_name[0] == '.') continue;
+            while ((de = readdir(dp)) != NULL) { // 遍历文件夹
+                int len = strlen(de->d_name); // d_name文件名
+                if (de->d_name[0] == '.') continue; // 隐藏文件，忽略 .x
                 if (len != 8 && len != 9 && len != 12) continue; // .data .htree .hint.qlz
-                sprintf(target, "%s/%s", disks[i], de->d_name);
+                sprintf(target, "%s/%s", disks[i], de->d_name); // dirname/filename
+
                 if (stat(target, &sb) != 0) {
                     unlink(target);
                 }
-                if (i == 0) continue;
+
+
+                if (i == 0) continue; // ?
+
+                // 符号链接 sb.st_mode & S_IFMT 判断文件类型 S_IFREG 一般文件
                 if (lstat(target, &sb) != 0 || (sb.st_mode & S_IFMT) != S_IFREG) {
                     unlink(target);
                     continue;
-                }    
-                sprintf(sym, "%s/%s", disks[0], de->d_name);
+                }
+
+                sprintf(sym, "%s/%s", disks[0], de->d_name); // disks[0]/filename
                 if (0 == stat(sym, &sb)) continue;
                 int r = 0;
                 if (target[0] != '/') {
@@ -102,8 +117,8 @@ const char* mgr_base(Mgr *mgr)
     return mgr->disks[0];
 }
 
-static uint64_t 
-get_disk_avail(const char *path, uint64_t *total) 
+static uint64_t
+get_disk_avail(const char *path, uint64_t *total)
 {
     struct statvfs stat;
     int r = statvfs(path, &stat);
@@ -176,9 +191,13 @@ void mgr_rename(const char *oldpath, const char *newpath)
         int n = readlink(oldpath, ropath, 255);
         if (n > 0) {
             ropath[n] = 0;
-            char *rnpath = strcat(strcat(dirname(strdup(ropath)), "/"), 
+            // 将两个char类型链接。
+            // strdup（）函数是c语言中常用的一种字符串拷贝库函数，一般和free（）函数成对出现。
+            // dirname('/etc/passwd') /etc
+            // basename('/etc/passwd') passwd
+            char *rnpath = strcat(strcat(dirname(strdup(ropath)), "/"),
                                   basename(strdup(newpath)));
-            rename(ropath, rnpath); 
+            rename(ropath, rnpath);
             unlink(oldpath);
             if (symlink(rnpath, newpath) != 0)
                 fprintf(stderr, "symlink failed: %s -> %s\n", rnpath, newpath);

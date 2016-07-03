@@ -17,11 +17,11 @@ static int aeApiCreate(EventLoop *eventLoop) {
     aeApiState *state = malloc(sizeof(aeApiState));
 
     if (!state) return -1;
-    state->kqfd = kqueue();
+    state->kqfd = kqueue(); // 初始化一个kqueue
     if (state->kqfd == -1) return -1;
     eventLoop->apidata = state;
-    
-    return 0;    
+
+    return 0;
 }
 
 static void aeApiFree(EventLoop *eventLoop) {
@@ -34,7 +34,7 @@ static void aeApiFree(EventLoop *eventLoop) {
 static int aeApiAddEvent(EventLoop *eventLoop, int fd, int mask) {
     aeApiState *state = eventLoop->apidata;
     struct kevent ke;
-    
+
     if (mask & AE_READABLE) {
         EV_SET(&ke, fd, EVFILT_READ, EV_ADD | EV_ONESHOT, 0, 0, NULL);
         if (kevent(state->kqfd, &ke, 1, NULL, 0, NULL) == -1) return -1;
@@ -70,19 +70,19 @@ static int aeApiPoll(EventLoop *eventLoop, struct timeval *tvp) {
         retval = kevent(state->kqfd, NULL, 0, state->events, AE_SETSIZE, &timeout);
     } else {
         retval = kevent(state->kqfd, NULL, 0, state->events, AE_SETSIZE, NULL);
-    }    
+    }
 
     if (retval > 0) {
         int j;
-        
+
         numevents = retval;
         for(j = 0; j < numevents; j++) {
             int mask = 0;
             struct kevent *e = state->events+j;
-            
+
             if (e->filter == EVFILT_READ) mask |= AE_READABLE;
             if (e->filter == EVFILT_WRITE) mask |= AE_WRITABLE;
-            eventLoop->fired[j] = e->ident; 
+            eventLoop->fired[j] = e->ident;
         }
     }
     return numevents;

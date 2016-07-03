@@ -34,6 +34,7 @@ void       bc_optimize(Bitcask *bc, int limit);
 DataRecord* bc_get(Bitcask *bc, const char* key);
 bool       bc_set(Bitcask *bc, const char* key, char* value, int vlen, int flag, int version);
 bool       bc_delete(Bitcask *bc, const char* key);
+
 uint16_t   bc_get_hash(Bitcask *bc, const char * pos, int *count);
 char*      bc_list(Bitcask *bc, const char* pos, const char *prefix);
 uint32_t   bc_count(Bitcask *bc, uint32_t* curr);
