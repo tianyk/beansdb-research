@@ -421,12 +421,15 @@ DataRecord* bc_get(Bitcask *bc, const char* key)
 {
     Item *item = ht_get(bc->tree, key);
     if (NULL == item) return NULL;
+    // ver < 0 代表删除
     if (item->ver < 0){
         free(item);
         return NULL;
     }
 
+    // 后8位是文件编号
     uint32_t bucket = item->pos & 0xff;
+    // 前24位是在文件中的位置
     uint32_t pos = item->pos & 0xffffff00;
     if (bucket > bc->curr) {
         fprintf(stderr, "BUG: invalid bucket %d > %d\n", bucket, bc->curr);
