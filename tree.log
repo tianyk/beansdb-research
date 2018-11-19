@@ -1,0 +1,76 @@
+.
+├── AUTHORS
+├── CREDITS
+├── ChangeLog
+├── INSTALL
+├── LICENSE
+├── Makefile.am
+├── Makefile.in
+├── README.md
+├── TODO
+├── autogen.sh
+├── compile
+├── config.h.in
+├── configure
+├── configure.ac
+├── depcomp
+├── doc
+│   ├── Makefile.am
+│   ├── Makefile.in
+│   ├── beansdb.1
+│   └── protocol.txt
+├── install-sh
+├── missing
+├── python
+│   ├── dbclient.py
+│   ├── httpd.py
+│   ├── proxy.py
+│   ├── sync.py
+│   └── test.py
+├── src
+│   ├── ae_epoll.c
+│   ├── ae_kqueue.c
+│   ├── ae_select.c
+│   ├── beansdb.c
+│   ├── beansdb.h
+│   ├── bitcask.c
+│   ├── bitcask.h
+│   ├── clock_gettime_stub.c
+│   ├── codec.c
+│   ├── codec.h
+│   ├── crc32.c
+│   ├── diskmgr.c
+│   ├── diskmgr.h
+│   ├── echo.c
+│   ├── fnv1a.h
+│   ├── hint.c
+│   ├── hint.h
+│   ├── hstore.c
+│   ├── hstore.h
+│   ├── htree.c
+│   ├── htree.h
+│   ├── item.c
+│   ├── quicklz.c
+│   ├── quicklz.h
+│   ├── record.c
+│   ├── record.h
+│   └── thread.c
+├── test
+│   ├── Makefile
+│   ├── beansdb.go
+│   ├── bitcask.go
+│   ├── bitcask_test.go
+│   ├── codec.go
+│   ├── codec_test.go
+│   ├── fnv1a.h
+│   ├── htree.go
+│   ├── htree_test.go
+│   ├── main.go
+│   ├── test.sh
+│   ├── test_htree.c
+│   ├── test_record.c
+│   └── test_store.c
+├── tree.log
+└── �\223�\236\204.md
+
+4 directories, 69 files

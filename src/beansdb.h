@@ -99,8 +99,9 @@
 #define PRIXS __PRIS_PREFIX "X"
 #define PRIoS __PRIS_PREFIX "o"
 
+// 服务器状态
 struct stats {
-    uint32_t      curr_conns;
+    uint32_t      curr_conns; // 当前连接数
     uint32_t      total_conns;
     uint32_t      conn_structs;
     uint64_t      get_cmds;
@@ -116,6 +117,7 @@ struct stats {
 
 #define MAX_VERBOSITY_LEVEL 2
 
+// 服务器设置
 struct settings {
     size_t item_buf_size;
     int maxconns;
@@ -150,6 +152,7 @@ typedef struct _stritem {
 #define ITEM_data(item) ((char*) &((item)->end[0]) + (item)->nkey + 1 + (item)->nsuffix)
 #define ITEM_ntotal(item) (sizeof(struct _stritem) + (item)->nkey + 1 + (item)->nsuffix + (item)->nbytes)
 
+// 连接状态
 enum conn_states {
     conn_listening,  /** the socket which listens for connections */
     conn_read,       /** reading in a command line */
@@ -166,6 +169,7 @@ enum conn_states {
 #define NREAD_APPEND 4
 #define NREAD_PREPEND 5
 
+// 连接对象
 typedef struct conn conn;
 struct conn {
     int    sfd;

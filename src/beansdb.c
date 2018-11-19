@@ -1863,7 +1863,7 @@ static void remove_pidfile(const char *pid_file) {
 }
 
 /* for safely exit, make sure to do checkpoint*/
-// 捕捉信息
+// 处理 signal 信号
 static void sig_handler(const int sig)
 {
     int ret;
@@ -2108,6 +2108,7 @@ int main (int argc, char **argv) {
      * ignore SIGPIPE signals; we can use errno==EPIPE if we
      * need that information
      */
+    //  处理 signal 信号
     sa.sa_handler = SIG_IGN;
     sa.sa_flags = 0;
     if (sigemptyset(&sa.sa_mask) == -1 ||

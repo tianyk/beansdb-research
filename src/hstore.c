@@ -36,7 +36,7 @@ const int APPEND_FLAG  = 0x00000100;
 const int INCR_FLAG    = 0x00000204;
 
 struct t_hstore {
-    int height, count; // height 深度 count 一共多少个文件夹（最底层）
+    int height, count; // 文件夹深度
     time_t before;
     int scan_threads;
     int op_start, op_end, op_limit; // for optimization
